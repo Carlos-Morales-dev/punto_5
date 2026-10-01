@@ -23,6 +23,9 @@ interface TareaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(tarea: Tarea): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(tareas: List<Tarea>)
+
     @Update
     suspend fun update(tarea: Tarea)
 

@@ -2,9 +2,13 @@ package com.example.tareas.data
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "tareas")
+@Entity(
+    tableName = "tareas",
+    indices = [Index(value = ["remote_id"], unique = true)]
+)
 data class Tarea(
     // Clave primaria autogenerada para Room
     @PrimaryKey(autoGenerate = true)
@@ -33,5 +37,14 @@ data class Tarea(
     val categoria: String = "Universidad",
 
     @ColumnInfo(name = "fecha_limite")
-    val fechaLimite: Long? = null
+    val fechaLimite: Long? = null,
+
+    // ID del documento de Firestore; null si la tarea es local y nunca vino de la nube
+    @ColumnInfo(name = "remote_id")
+    val remoteId: String? = null,
+
+    // Para futuras resoluciones de conflicto
+    @ColumnInfo(name = "fecha_actualizacion")
+    val fechaActualizacion: Long = System.currentTimeMillis()
 )
+

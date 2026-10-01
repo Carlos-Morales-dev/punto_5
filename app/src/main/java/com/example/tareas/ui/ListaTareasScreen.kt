@@ -51,6 +51,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,10 +71,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,8 +90,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tareas.data.Tarea
-import com.example.tareas.data.TareaRepository
-import kotlinx.coroutines.launch
 
 enum class FiltroEstado {
     TODAS,
@@ -102,13 +101,31 @@ enum class FiltroEstado {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListaTareasScreen(
-    repository: TareaRepository,
+    viewModel: TareaViewModel,
     modifier: Modifier = Modifier
 ) {
-    // Manejo de estado reactivo que observa el flujo de datos desde Room y recompone la interfaz ante cualquier cambio
-    val todasLasTareas by repository.todasLasTareas.collectAsStateWithLifecycle(initialValue = emptyList())
+    // Manejo de estado reactivo que observa el StateFlow desde el ViewModel, seguro ante rotaciones de pantalla
+    val todasLasTareas by viewModel.todasLasTareas.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
+    val errorMensaje by viewModel.errorMensaje.collectAsStateWithLifecycle()
+
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+    var mensajeFeedbackUsuario by remember { mutableStateOf<String?>(null) }
+
+    // Notificaciones de usuario y de errores de sincronización sin corrutinas acopladas a la pantalla
+    LaunchedEffect(mensajeFeedbackUsuario) {
+        mensajeFeedbackUsuario?.let { mensaje ->
+            snackbarHostState.showSnackbar(mensaje)
+            mensajeFeedbackUsuario = null
+        }
+    }
+
+    LaunchedEffect(errorMensaje) {
+        errorMensaje?.let { error ->
+            snackbarHostState.showSnackbar(error)
+            viewModel.limpiarError()
+        }
+    }
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -168,13 +185,10 @@ fun ListaTareasScreen(
     val ratioProgreso = if (totalTareas == 0) 0f else tareasCompletadas.toFloat() / totalTareas
 
     val ejecutarSincronizacion: () -> Unit = {
-        scope.launch {
-            val noSync = repository.getNoSincronizadas()
-            noSync.forEach { repository.marcarSincronizada(it.id) }
-            snackbarHostState.showSnackbar(
-                if (noSync.isNotEmpty()) "${noSync.size} tareas sincronizadas con éxito"
-                else "Todas las tareas ya están al día"
-            )
+        viewModel.sincronizarTareasLocales { exito ->
+            if (exito) {
+                mensajeFeedbackUsuario = "Tareas sincronizadas con la nube"
+            }
         }
     }
 
@@ -182,9 +196,7 @@ fun ListaTareasScreen(
         if (tareasCompletadas > 0) {
             mostrarDialogoConfirmarEliminar = true
         } else {
-            scope.launch {
-                snackbarHostState.showSnackbar("No hay tareas completadas para eliminar")
-            }
+            mensajeFeedbackUsuario = "No hay tareas completadas para eliminar"
         }
     }
 
@@ -219,6 +231,16 @@ fun ListaTareasScreen(
                     }
                 },
                 actions = {
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .testTag("indicador_sync_actions"),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     IconButton(
                         onClick = {
                             busquedaVisible = !busquedaVisible
@@ -401,14 +423,7 @@ fun ListaTareasScreen(
                         totalTareas = totalTareas,
                         // Callback para alternar el estado completado y actualizar la tarea en el almacenamiento local
                         onToggleCompletado = { tarea ->
-                            scope.launch {
-                                repository.update(
-                                    tarea.copy(
-                                        estadoCompletado = !tarea.estadoCompletado,
-                                        sincronizado = false
-                                    )
-                                )
-                            }
+                            viewModel.cambiarEstadoTarea(tarea, !tarea.estadoCompletado)
                         },
                         // Callback para asignar la tarea seleccionada y abrir el dialogo de edicion
                         onEditar = { tarea ->
@@ -509,14 +524,7 @@ fun ListaTareasScreen(
                     totalTareas = totalTareas,
                     // Callback para alternar el estado completado y actualizar la tarea en el almacenamiento local
                     onToggleCompletado = { tarea ->
-                        scope.launch {
-                            repository.update(
-                                tarea.copy(
-                                    estadoCompletado = !tarea.estadoCompletado,
-                                    sincronizado = false
-                                )
-                            )
-                        }
+                        viewModel.cambiarEstadoTarea(tarea, !tarea.estadoCompletado)
                     },
                     // Callback para asignar la tarea seleccionada y abrir el dialogo de edicion
                     onEditar = { tarea ->
@@ -566,10 +574,8 @@ fun ListaTareasScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        scope.launch {
-                            repository.eliminarCompletadas()
-                            snackbarHostState.showSnackbar("Tareas completadas eliminadas de Room")
-                        }
+                        viewModel.eliminarCompletadas()
+                        mensajeFeedbackUsuario = "Tareas completadas eliminadas de Room"
                         mostrarDialogoConfirmarEliminar = false
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -626,10 +632,8 @@ fun ListaTareasScreen(
                 Button(
                     // Callback para eliminar definitivamente la tarea del repositorio local
                     onClick = {
-                        scope.launch {
-                            repository.delete(tareaActual)
-                            snackbarHostState.showSnackbar("Tarea eliminada correctamente")
-                        }
+                        viewModel.eliminarTarea(tareaActual)
+                        mensajeFeedbackUsuario = "Tarea eliminada correctamente"
                         tareaParaEliminar = null
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -686,13 +690,11 @@ fun ListaTareasScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        scope.launch {
-                            repository.deleteByCategoria(catAEliminar)
-                            if (categoriaSeleccionada.equals(catAEliminar, ignoreCase = true)) {
-                                categoriaSeleccionada = "Todas"
-                            }
-                            snackbarHostState.showSnackbar("Categoría '$catAEliminar' y sus tareas eliminadas")
+                        viewModel.eliminarPorCategoria(catAEliminar)
+                        if (categoriaSeleccionada.equals(catAEliminar, ignoreCase = true)) {
+                            categoriaSeleccionada = "Todas"
                         }
+                        mensajeFeedbackUsuario = "Categoría '$catAEliminar' y sus tareas eliminadas"
                         categoriaParaEliminar = null
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -725,33 +727,32 @@ fun ListaTareasScreen(
         AgregarEditarTareaScreen(
             tareaAEditar = tareaAEditarLocal,
             onGuardar = { titulo, descripcion, categoria, prioridad, fechaLimite ->
-                scope.launch {
-                    if (tareaAEditarLocal == null) {
-                        // Callback para insertar una nueva tarea en la base de datos local
-                        val nuevaTarea = Tarea(
-                            titulo = titulo,
-                            descripcion = descripcion,
-                            categoria = categoria,
-                            prioridad = prioridad,
-                            fechaLimite = fechaLimite,
-                            sincronizado = false,
-                            fechaCreacion = System.currentTimeMillis()
-                        )
-                        repository.insert(nuevaTarea)
-                        snackbarHostState.showSnackbar("Tarea guardada en Room exitosamente")
-                    } else {
-                        // Callback para actualizar los datos de la tarea existente en la base de datos local
-                        val tareaActualizada = tareaAEditarLocal.copy(
-                            titulo = titulo,
-                            descripcion = descripcion,
-                            categoria = categoria,
-                            prioridad = prioridad,
-                            fechaLimite = fechaLimite,
-                            sincronizado = false
-                        )
-                        repository.update(tareaActualizada)
-                        snackbarHostState.showSnackbar("Tarea actualizada en Room")
-                    }
+                if (tareaAEditarLocal == null) {
+                    // Callback para insertar una nueva tarea en la base de datos local
+                    val nuevaTarea = Tarea(
+                        titulo = titulo,
+                        descripcion = descripcion,
+                        categoria = categoria,
+                        prioridad = prioridad,
+                        fechaLimite = fechaLimite,
+                        sincronizado = false,
+                        fechaCreacion = System.currentTimeMillis()
+                    )
+                    viewModel.insertarTarea(nuevaTarea)
+                    mensajeFeedbackUsuario = "Tarea guardada en Room exitosamente"
+                } else {
+                    // Callback para actualizar los datos de la tarea existente en la base de datos local
+                    val tareaActualizada = tareaAEditarLocal.copy(
+                        titulo = titulo,
+                        descripcion = descripcion,
+                        categoria = categoria,
+                        prioridad = prioridad,
+                        fechaLimite = fechaLimite,
+                        sincronizado = false,
+                        fechaActualizacion = System.currentTimeMillis()
+                    )
+                    viewModel.actualizarTarea(tareaActualizada)
+                    mensajeFeedbackUsuario = "Tarea actualizada en Room"
                 }
                 mostrarDialogoAgregarEditar = false
                 tareaParaEditar = null

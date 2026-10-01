@@ -4,9 +4,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.ViewModelProvider
 import com.example.tareas.data.AppDatabase
 import com.example.tareas.data.TareaRepository
 import com.example.tareas.ui.ListaTareasScreen
+import com.example.tareas.ui.TareaViewModel
+import com.example.tareas.ui.TareaViewModelFactory
 import com.example.tareas.ui.theme.TareasTheme
 
 class MainActivity : ComponentActivity() {
@@ -17,10 +20,12 @@ class MainActivity : ComponentActivity() {
 
         val database = AppDatabase.getDatabase(applicationContext)
         val repository = TareaRepository(database.tareaDao())
+        val factory = TareaViewModelFactory(repository)
+        val viewModel = ViewModelProvider(this, factory)[TareaViewModel::class.java]
 
         setContent {
             TareasTheme {
-                ListaTareasScreen(repository = repository)
+                ListaTareasScreen(viewModel = viewModel)
             }
         }
     }
