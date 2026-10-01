@@ -38,3 +38,28 @@ data class Tarea(
     ...
 )
 ```
+### 4. Qué pasa si no hay conexión a internet
+
+La app está pensada para que funcione bien incluso sin internet, no solo cuando todo está conectado.
+
+- **No se cae la app:** en `TareaRepository.kt`, envolvimos la llamada a Firestore con `runCatching`, así que si falla por cualquier motivo (sin red, timeout, lo que sea), la excepción se captura y no provoca un crash.
+- **Los datos siguen disponibles:** si no hay internet, el usuario puede seguir usando la app con total normalidad — ver sus tareas, filtrarlas, marcarlas como completadas, crear nuevas — porque todo eso sigue funcionando contra Room, que no depende de la conexión.
+- **Se avisa de forma discreta:** cuando falla la sincronización, el `ViewModel` actualiza un estado de error que dispara un Snackbar con el mensaje "Modo sin conexión". Después de mostrarse, ese estado se limpia solo, para que no se quede repitiendo el mensaje cada vez que la pantalla se recompone.
+
+---
+
+### 5. Un detalle técnico que encontramos probando: Source.DEFAULT vs Source.SERVER
+
+Mientras probábamos el comportamiento sin conexión (activando modo avión en el emulador), nos encontramos con algo que no esperábamos: la app decía que había sincronizado correctamente, aunque estuviéramos en modo avión.
+
+Después de revisarlo, nos dimos cuenta de que **Firestore tiene su propia caché interna**, completamente aparte de la que nosotros manejamos en Room. Por defecto (`Source.DEFAULT`), si el dispositivo ya había descargado datos antes, Firestore simplemente devuelve esos datos desde su caché propia sin intentar conectarse al servidor — entonces nuestra consulta "tenía éxito" aunque no hubiera internet real, lo cual hacía que nuestra lógica de manejo de errores nunca se activara.
+
+Para solucionarlo, forzamos que la consulta use `Source.SERVER` en vez del comportamiento por defecto:
+
+```kotlin
+val snapshot = firestore.collection("catalogo_tareas").get(Source.SERVER).await()
+```
+
+Con este cambio, la app ahora sí intenta conectarse directamente al servidor cada vez, y si no hay conexión real, la consulta falla de inmediato como se esperaría — permitiendo que nuestro manejo de errores funcione correctamente y el usuario vea el aviso de "Modo sin conexión".
+
+Este ajuste también nos deja algo más ordenado: toda la responsabilidad de guardar datos para uso offline queda centralizada en Room (que es la base de datos que nosotros controlamos), en vez de depender de dos cachés distintas funcionando por separado sin que nos diéramos cuenta.
