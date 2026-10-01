@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "99624877106",
+    "project_id": "todo-taller5-persistencia",
+    "storage_bucket": "todo-taller5-persistencia.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:99624877106:android:78a13dbd584f2360f8902b",
+        "android_client_info": {
+          "package_name": "com.aistudio.todo.cdxz"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCDX-X4oeDvG41g400umBk-Sy8tqZpFMec"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
